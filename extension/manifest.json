@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Lucky Button Extension",
+  "version": "1.0",
+  "description": "Presses the 'I'm Feeling Lucky' button on google.com when ctrl-L is pressed.",
+  "permissions": ["scripting", "activeTab"],
+  "host_permissions": ["https://google.com/*"],
+  "background": {
+    "service_worker": "src/background.ts"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://google.com/*"],
+      "js": ["src/content.ts"]
+    }
+  ],
+  "externally_connectable": {
+    "ids": [
+      "ilkklnfjpfoibgokaobmjhmdamogjcfj", 
+      "iegmbfhabdlajoplgfiaamjmknnniiob"
+    ],
+    "matches": [
+      "<all_urls>"
+    ],
+    "accepts_tls_channel_id": false
+  }
+}

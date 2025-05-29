@@ -1,11 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport";
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types";
 import { v4 as generateUuid } from 'uuid';
 import { z } from "zod";
 
 const app = document.getElementById('app')!;
 
-export default class MCPServerTransport { // implements Transport {
+export default class MCPServerTransport implements Transport {
   private _sessionId: string;
   private sourceId = 'mcp-server';
   private pingInterval: number;
@@ -16,23 +17,15 @@ export default class MCPServerTransport { // implements Transport {
 
   constructor() {
     this._sessionId = generateUuid();
+
+    // Periodically send a ping to notify the extension that the MCP server is available
     this.pingInterval = setInterval(() => {
       this.sendRequestOrNotificationToExtension('ping', {});
-    }, 5000);
+    }, 1000);
   }
 
   async start(): Promise<void> {
-    console.info('Demo MCPServerTransport starting...');
-
-    // Send a ping to notify the extension that the MCP server is available
-    // this.sendRequestOrNotificationToExtension('ping', {});
-
     window.addEventListener('message', (e) => {
-      // if (e.data?.source == 'react-devtools-content-script') {
-      //   return;
-      // }
-      // console.info('Demo MCPServerTransport received message event:', e);
-
       const { method, source, ...rest } = e.data as { method?: string, source?: string };
       if (source === this.sourceId) {
         // ignore messages from this mcp-server
@@ -45,7 +38,6 @@ export default class MCPServerTransport { // implements Transport {
         this.onmessage?.(message);
       }
     });
-    console.info('Demo MCPServerTransport started');
   }
 
   async send(message: JSONRPCMessage): Promise<void> {
@@ -64,7 +56,7 @@ export default class MCPServerTransport { // implements Transport {
 
   private sendRequestOrNotificationToExtension(method: string, params: any) {
     method = 'mcp:' + method;
-    this.sendMessageToExtension({ method, params, source: this.sourceId });
+    this.sendMessageToExtension({ method, params });
   }
 
   protected sendMessageToExtension(message: any) {
@@ -72,6 +64,7 @@ export default class MCPServerTransport { // implements Transport {
       console.info('MCPServerTransport sending message:', message);
     }
     message.mcpSessionId = this.sessionId;
+    message.source = this.sourceId;
     window.postMessage(message, '*');
   }
 
