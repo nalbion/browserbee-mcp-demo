@@ -1,6 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { v4 as generateUuid } from 'uuid';
 
 // const browserbeeExtensionId = 'ilkklnfjpfoibgokaobmjhmdamogjcfj'; // prod
@@ -28,36 +27,32 @@ interface MCPMessage {
   source?: string;
 }
 
-export default class MCPServerTransport implements Transport {
+interface JSONRPCMessage {
+  id?: number | string | null;
+  jsonrpc?: "2.0";
+}
+
+class MCPServerTransport implements Transport {
   private _sessionId: string;
-  private sourceId = 'mcp-server';
+  protected sourceId = 'mcp-server';
   private pingInterval: NodeJS.Timeout;
 
   onclose?: () => void;
   onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage, extra?: { /*authInfo?: AuthInfo*/ }) => void;
+  onmessage?: (message: JSONRPCMessage, extra?: any) => void; // extra: { authInfo?: AuthInfo }
 
-  constructor() {
+  constructor(pingIntervalMs = 1000) {
     this._sessionId = generateUuid();
-    console.info('MCPServerTransport constructor', this._sessionId);
 
     // Periodically send a ping to notify the extension that the MCP server is available
     this.pingInterval = setInterval(() => {
       this.sendRequestOrNotificationToExtension('ping', {});
-    }, 1000);
+    }, pingIntervalMs);
   }
 
   async start(): Promise<void> {
-    // window.addEventListener('message', (e) => {
-    //   this.handleMessage(e.data as MCPMessage);
-    // });
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      this.handleMessage(message);
-    });
-
-    chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-      console.info('MCPServerTransport received external message:', message);
-      this.handleMessage(message);
+    window.addEventListener('message', (e) => {
+      this.handleMessage(e.data as MCPMessage);
     });
   }
 
@@ -75,7 +70,7 @@ export default class MCPServerTransport implements Transport {
     clearInterval(this.pingInterval);
   }
 
-  private handleMessage(message: MCPMessage) {
+  protected handleMessage(message: MCPMessage) {
     const { method, source, ...rest } = message;
       if (source === this.sourceId) {
         // ignore messages from this mcp-server
@@ -84,7 +79,7 @@ export default class MCPServerTransport implements Transport {
 
       if (method?.startsWith('mcp:')) {
         const message = { method: method.slice(4), ...rest } as JSONRPCMessage;
-        console.info('Demo MCPServerTransport received MCP message:', message);
+        console.debug('MCPServerTransport received MCP message:', message);
         this.onmessage?.(message);
       }
   }
@@ -96,16 +91,11 @@ export default class MCPServerTransport implements Transport {
 
   protected sendMessageToExtension(message: any) {
     if (message.method !== 'mcp:ping') {
-      console.info('MCPServerTransport sending message:', message);
+      console.debug('MCPServerTransport sending message:', message);
     }
     message.mcpSessionId = this.sessionId;
     message.source = this.sourceId;
-    // window.postMessage(message, '*');
-    chrome.runtime.sendMessage(browserbeeExtensionId, message).then((response) => {
-      console.info('MCPServerTransport received response:', response);
-    }, (error) => {
-      console.error('MCPServerTransport received error:', error);
-    });
+    window.postMessage(message, '*');
   }
 
   get sessionId(): string {
@@ -113,6 +103,30 @@ export default class MCPServerTransport implements Transport {
   }
 }
 
+class MCPServerExtensionTransport extends MCPServerTransport {
+  async start(): Promise<void> {
+    chrome.runtime.onMessageExternal.addListener((message) => {
+      console.debug('MCPServerExtensionTransport received external message:', message);
+      this.handleMessage(message);
+    });
+  }
+
+  protected sendMessageToExtension(message: any) {
+    if (message.method !== 'mcp:ping') {
+      console.debug('MCPServerExtensionTransport sending message:', message);
+    }
+    message.mcpSessionId = this.sessionId;
+    message.source = this.sourceId;
+    chrome.runtime.sendMessage(browserbeeExtensionId, message, () => {
+      if (chrome.runtime.lastError) {
+        // browserbee is probably not installed/listening
+        console.debug('MCPServerExtensionTransport received error:', chrome.runtime.lastError.message);
+      }
+    });
+  }
+}
+
+// Create the MCP server
 const server = new McpServer({
   name: 'Google MCP',
   version: '1.0.0'
@@ -127,5 +141,5 @@ server.tool('press_lucky',
   }
 );
 
-const transport = new MCPServerTransport();
+const transport = new MCPServerExtensionTransport();
 server.connect(transport);
